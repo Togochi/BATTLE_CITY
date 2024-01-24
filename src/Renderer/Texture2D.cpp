@@ -25,6 +25,8 @@ namespace Renderer
 		}
 
 		glGenTextures(1, &m_ID);
+
+		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, m_ID);
 		glTexImage2D(GL_TEXTURE_2D, 0, m_mode, m_width, m_height, 0, m_mode, GL_UNSIGNED_BYTE, data);
 
@@ -37,7 +39,7 @@ namespace Renderer
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
-	Texture2D::Texture2D(Texture2D&& texture2D)
+	Texture2D::Texture2D(Texture2D&& texture2D) noexcept
 	{
 		m_ID = texture2D.m_ID;
 		texture2D.m_ID = 0;
@@ -46,7 +48,7 @@ namespace Renderer
 		m_height = texture2D.m_height;
 	}
 
-	Texture2D& Texture2D::operator=(Texture2D&& texture2D)
+	Texture2D& Texture2D::operator=(Texture2D&& texture2D) noexcept
 	{
 		glDeleteTextures(1, &m_ID);
 
@@ -66,5 +68,6 @@ namespace Renderer
 
 	void Texture2D::bind() const
 	{
+		glBindTexture(GL_TEXTURE_2D, m_ID);
 	}
 }

@@ -18,8 +18,8 @@ namespace Renderer
 		Texture2D(const Texture2D&) = delete;
 		Texture2D& operator=(const Texture2D&) = delete;
 
-		Texture2D(Texture2D&& texture2D);
-		Texture2D& operator=(Texture2D&& texture2D);
+		Texture2D(Texture2D&& texture2D) noexcept;
+		Texture2D& operator=(Texture2D&& texture2D) noexcept;
 
 		~Texture2D();
 
