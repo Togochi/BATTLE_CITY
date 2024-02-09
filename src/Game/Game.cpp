@@ -1,187 +1,122 @@
 #include "Game.h"
 
-#include "../Renderer/ShaderProgram.h"
 #include "../Resources/ResourceManager.h"
+#include "../Renderer/ShaderProgram.h"
 #include "../Renderer/Texture2D.h"
 #include "../Renderer/Sprite.h"
-#include "../Renderer/AnimatedSprite.h"
-#include "Tank.h"
+
+#include "GameObjects/Tank.h"
+#include "GameObjects/Bullet.h"
+
+#include "GameStates/Level.h"
+#include "GameStates/StartScreen.h"
+#include "../Physics/PhysicsEngine.h"
+#include "../Renderer/Renderer.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 
-Game::Game(const glm::ivec2 windowSize)
-	:m_currentGameState(EGameState::Active), 
-     m_WindowSize(windowSize)
+Game::Game(const glm::uvec2& windowSize)
+    : m_windowSize(windowSize)
+    , m_eCurrentGameState(EGameState::StartScreen)
+    , m_currentLevelIndex(0)
 {
-	m_keys.fill(false);
+    m_keys.fill(false);
+}
+
+void Game::setWindowSize(const glm::uvec2& windowSize)
+{
+    m_windowSize = windowSize;
+    updateViewport();
 }
 
 Game::~Game()
 {
-}
 
-void Game::update(const uint64_t delta)
-{
-
-    if (m_pTank)
-    {
-        if (m_keys[GLFW_KEY_W])
-        {
-            m_pTank->setOrientation(Tank::EOrientation::Top);
-            m_pTank->move(true);
-        }
-        else if (m_keys[GLFW_KEY_A])
-        {
-            m_pTank->setOrientation(Tank::EOrientation::Left);
-            m_pTank->move(true);
-        }
-        else if (m_keys[GLFW_KEY_D])
-        {
-            m_pTank->setOrientation(Tank::EOrientation::Right);
-            m_pTank->move(true);
-        }
-        else if (m_keys[GLFW_KEY_S])
-        {
-            m_pTank->setOrientation(Tank::EOrientation::Bottom);
-            m_pTank->move(true);
-        }
-        else
-        {
-            m_pTank->move(false);
-        }
-        m_pTank->update(delta);
-    }
 }
 
 void Game::render()
 {
-    if (m_pTank)
+    m_pCurrentGameState->render();
+}
+
+void Game::updateViewport()
+{
+    const float level_aspect_ratio = static_cast<float>(getCurrentWidth()) / getCurrentHeight();
+    unsigned int viewPortWidth = m_windowSize.x;
+    unsigned int viewPortHeight = m_windowSize.y;
+    unsigned int viewPortLeftOffset = 0;
+    unsigned int viewPortBottomOffset = 0;
+
+    if (static_cast<float>(m_windowSize.x) / m_windowSize.y > level_aspect_ratio)
     {
-        m_pTank->render();
+        viewPortWidth = static_cast<unsigned int>(m_windowSize.y * level_aspect_ratio);
+        viewPortLeftOffset = (m_windowSize.x - viewPortWidth) / 2;
     }
+    else
+    {
+        viewPortHeight = static_cast<unsigned int>(m_windowSize.x / level_aspect_ratio);
+        viewPortBottomOffset = (m_windowSize.y - viewPortHeight) / 2;
+    }
+
+    RenderEngine::Renderer::setViewport(viewPortWidth, viewPortHeight, viewPortLeftOffset, viewPortBottomOffset);
+
+    glm::mat4 projectionMatrix = glm::ortho(0.f, static_cast<float>(getCurrentWidth()), 0.f, static_cast<float>(getCurrentHeight()), -100.f, 100.f);
+    m_pSpriteShaderProgram->setMatrix4("projectionMat", projectionMatrix);
+}
+
+void Game::startNewLevel(const size_t level, const EGameMode eGameMode)
+{
+    m_currentLevelIndex = level;
+    auto pLevel = std::make_shared<Level>(ResourceManager::getLevels()[m_currentLevelIndex], eGameMode);
+    m_pCurrentGameState = pLevel;
+    Physics::PhysicsEngine::setCurrentLevel(pLevel);
+    updateViewport();
+}
+
+void Game::nextLevel(const EGameMode eGameMode)
+{
+    startNewLevel(++m_currentLevelIndex, eGameMode);
+}
+
+void Game::update(const double delta)
+{
+    m_pCurrentGameState->processInput(m_keys);
+    m_pCurrentGameState->update(delta);
 }
 
 void Game::setKey(const int key, const int action)
 {
-	m_keys[key] = action;
+    m_keys[key] = action;
 }
 
 bool Game::init()
 {
-    auto pDefaultShaderProgram = ResourceManager::loadShaders("DefaultShader", "res/shaders/vertex.txt", "res/shaders/fragment.txt");
+    ResourceManager::loadJSONResources("res/resources.json");
 
-    if (!pDefaultShaderProgram)
+    m_pSpriteShaderProgram = ResourceManager::getShaderProgram("spriteShader");
+    if (!m_pSpriteShaderProgram)
     {
-        std::cerr << "Can't create shader program: " << "DefaultShader" << std::endl;
+        std::cerr << "Can't find shader program: " << "spriteShader" << std::endl;
         return false;
     }
+    m_pSpriteShaderProgram->use();
+    m_pSpriteShaderProgram->setInt("tex", 0);
 
-
-    auto pSpriteShaderProgram = ResourceManager::loadShaders("SpriteShader", "res/shaders/vSprite.txt", "res/shaders/fSprite.txt");
-
-    if (!pSpriteShaderProgram)
-    {
-        std::cerr << "Can't create shader program: " << "SpriteShader" << std::endl;
-        return false;
-    }
-
-    auto tex = ResourceManager::loadTexture("DefaultTexture", "res/textures/map_16x16.png");
-
-    std::vector<std::string> subTextureNames = {
-        "block",
-        "rightBlock",
-        "bottomBlock",
-        "leftBlock",
-        "topBlock",
-        "beton",
-        "rightBeton",
-
-    };
-
-
-    auto pTextureAtlas = ResourceManager::loadTextureAtlas("DefaultTextureAtlas", "res/textures/map_16x16.png", std::move(subTextureNames), 16, 16);
-
-    auto pAnimatedSprite = ResourceManager::loadAnimatedSprite("NewAnimatedSprite", "DefaultTextureAtlas", "SpriteShader", 100, 100, "block");
-
-    pAnimatedSprite->setPosition(glm::vec2(300, 300));
-
-    std::vector<std::pair<std::string, uint64_t>> waterState;
-    waterState.emplace_back(std::pair<std::string, uint64_t>("leftBlock", 1000000000));
-    waterState.emplace_back(std::pair<std::string, uint64_t>("topBlock", 1000000000));
-    waterState.emplace_back(std::pair<std::string, uint64_t>("beton", 1000000000));
-
-    std::vector<std::pair<std::string, uint64_t>> eagleState;
-    eagleState.emplace_back(std::pair<std::string, uint64_t>("block", 1000000000));
-    eagleState.emplace_back(std::pair<std::string, uint64_t>("rightBlock", 1000000000));
-
-    pAnimatedSprite->insertState("waterState", std::move(waterState));
-    pAnimatedSprite->insertState("eagleState", std::move(eagleState));
-
-
-    pAnimatedSprite->setState("eagleState");
-
-
-
-    pDefaultShaderProgram->use();
-    pDefaultShaderProgram->setInt("tex", 0);
-
-    glm::mat4 modelMatrix_1 = glm::mat4(1.f);
-    modelMatrix_1 = glm::translate(modelMatrix_1, glm::vec3(100.f, 50.f, 0.f));
-
-    glm::mat4 modelMatrix_2 = glm::mat4(1.f);
-    modelMatrix_2 = glm::translate(modelMatrix_2, glm::vec3(590.f, 50.f, 0.f));
-
-    glm::mat4 projectionMatrix = glm::ortho(0.f, static_cast<float>(m_WindowSize.x), 0.f, static_cast<float>(m_WindowSize.y), -100.f, 100.f);
-
-    pDefaultShaderProgram->setMatrix4("projectionMat", projectionMatrix);
-
-    pSpriteShaderProgram->use();
-    pSpriteShaderProgram->setInt("tex", 0);
-    pSpriteShaderProgram->setMatrix4("projectionMat", projectionMatrix);
-
-
-    std::vector<std::string> tanksSubTextureNames = {
-    "TankTop1",
-    "TankTop2",
-    "TankLeft1",
-    "TankLeft2",
-    "TankBottom1",
-    "TankBottom2",
-    "TankRight1",
-    "TankRight2"
-
-    };
-
-    auto pTankTextureAtlas = ResourceManager::loadTextureAtlas("TanksTextureAtlas", "res/textures/tanks.png", std::move(tanksSubTextureNames), 16, 16);
-    auto pTanksAnimatedSprite = ResourceManager::loadAnimatedSprite("TanksAnimatedSprite", "TanksTextureAtlas", "SpriteShader", 100, 100, "TankTop1");
-
-    std::vector<std::pair<std::string, uint64_t>> tankTopState;
-    tankTopState.emplace_back(std::pair<std::string, uint64_t>("TankTop1", 500000000));
-    tankTopState.emplace_back(std::pair<std::string, uint64_t>("TankTop2", 500000000));
-
-    std::vector<std::pair<std::string, uint64_t>> tankBottomState;
-    tankBottomState.emplace_back(std::pair<std::string, uint64_t>("TankBottom1", 500000000));
-    tankBottomState.emplace_back(std::pair<std::string, uint64_t>("TankBottom2", 500000000));
-
-    std::vector<std::pair<std::string, uint64_t>> tankRightState;
-    tankRightState.emplace_back(std::pair<std::string, uint64_t>("TankRight1", 500000000));
-    tankRightState.emplace_back(std::pair<std::string, uint64_t>("TankRight2", 500000000));
-
-    std::vector<std::pair<std::string, uint64_t>> tankLeftState;
-    tankLeftState.emplace_back(std::pair<std::string, uint64_t>("TankLeft1", 500000000));
-    tankLeftState.emplace_back(std::pair<std::string, uint64_t>("TankLeft2", 500000000));
-
-    pTanksAnimatedSprite->insertState("tankTopState", std::move(tankTopState));
-    pTanksAnimatedSprite->insertState("tankBottomState", std::move(tankBottomState));
-    pTanksAnimatedSprite->insertState("tankLeftState", std::move(tankLeftState));
-    pTanksAnimatedSprite->insertState("tankRightState", std::move(tankRightState));
-
-    pTanksAnimatedSprite->setState("tankTopState");
-
-    m_pTank = std::make_unique<Tank>(pTanksAnimatedSprite, 0.0000001f, glm::vec2(100, 100));
+    m_pCurrentGameState = std::make_shared<StartScreen>(ResourceManager::getStartScreen(), this);
+    setWindowSize(m_windowSize);
 
     return true;
+}
+
+unsigned int Game::getCurrentWidth() const
+{
+    return m_pCurrentGameState->getStateWidth();
+}
+
+unsigned int Game::getCurrentHeight() const
+{
+    return m_pCurrentGameState->getStateHeight();
 }

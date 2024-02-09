@@ -1,6 +1,5 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-
 #include <glm/vec2.hpp>
 
 #include <iostream>
@@ -8,19 +7,21 @@
 
 #include "Game/Game.h"
 #include "Resources/ResourceManager.h"
+#include "Renderer/Renderer.h"
+#include "Physics/PhysicsEngine.h"
+
+static constexpr unsigned int SCALE = 3;
+static constexpr unsigned int BLOCK_SIZE = 16;
+glm::uvec2 g_windowSize(SCALE * 16 * BLOCK_SIZE, SCALE * 15 * BLOCK_SIZE);
+std::unique_ptr<Game> g_game = std::make_unique<Game>(g_windowSize);
 
 
-glm::ivec2 g_WindowSize(640, 480);
-Game g_game (g_WindowSize);
-
-
-void glfwWindowsizeCallback(GLFWwindow* pWindow, int width, int height)
+void glfwWindowSizeCallback(GLFWwindow* pWindow, int width, int height)
 {
-    g_WindowSize.x = width;
-    g_WindowSize.y = height;
-    glViewport(0, 0, width, height);
+    g_windowSize.x = width;
+    g_windowSize.y = height;
+    g_game->setWindowSize(g_windowSize);
 }
-
 
 void glfwKeyCallback(GLFWwindow* pWindow, int key, int scancode, int action, int mode)
 {
@@ -28,8 +29,7 @@ void glfwKeyCallback(GLFWwindow* pWindow, int key, int scancode, int action, int
     {
         glfwSetWindowShouldClose(pWindow, GL_TRUE);
     }
-
-    g_game.setKey(key, action);
+    g_game->setKey(key, action);
 }
 
 int main(int argc, char** argv)
@@ -37,70 +37,70 @@ int main(int argc, char** argv)
     /* Initialize the library */
     if (!glfwInit())
     {
-        std::cout << "glfwInit failed" << std::endl;
+        std::cout << "glfwInit failed!" << std::endl;
         return -1;
     }
-    
+
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     /* Create a windowed mode window and its OpenGL context */
-    GLFWwindow* pWindow = glfwCreateWindow(g_WindowSize.x, g_WindowSize.y, "BATTLE CITY", nullptr, nullptr);
+    GLFWwindow* pWindow = glfwCreateWindow(g_windowSize.x, g_windowSize.y, "Battle City", nullptr, nullptr);
     if (!pWindow)
     {
-        std::cout << "glfwCreateWindow failed" << std::endl;
+        std::cout << "glfwCreateWindow failed!" << std::endl;
         glfwTerminate();
         return -1;
     }
 
-
-    glfwSetWindowSizeCallback(pWindow, glfwWindowsizeCallback);
+    glfwSetWindowSizeCallback(pWindow, glfwWindowSizeCallback);
     glfwSetKeyCallback(pWindow, glfwKeyCallback);
 
     /* Make the window's context current */
     glfwMakeContextCurrent(pWindow);
-	
-	
-	if (!gladLoadGL())
-	{
-		std::cout << "Can't load GLAD" << '\n';
-		return -1;
-	}
 
-    std::cout << "Renderer " << glGetString(GL_RENDERER) << '\n';
-    std::cout << "OpenGL " << glGetString(GL_VERSION) << '\n';
-	
-	
-	glClearColor(0, 0, 0, 1);
+    if (!gladLoadGL())
+    {
+        std::cout << "Can't load GLAD!" << std::endl;
+    }
 
-  
+    std::cout << "Renderer: " << RenderEngine::Renderer::getRendererStr() << std::endl;
+    std::cout << "OpenGL version: " << RenderEngine::Renderer::getVersionStr() << std::endl;
+
+    RenderEngine::Renderer::setClearColor(0, 0, 0, 1);
+    RenderEngine::Renderer::setDepthTest(true);
+
     {
         ResourceManager::setExecutablePath(argv[0]);
-        g_game.init();
+        Physics::PhysicsEngine::init();
+        g_game->init();
 
+        //glfwSetWindowSize(pWindow, static_cast<int>(3 * g_game->getCurrentWidth()), static_cast<int>(3 * g_game->getCurrentHeight()));
         auto lastTime = std::chrono::high_resolution_clock::now();
-        
+
+        /* Loop until the user closes the window */
         while (!glfwWindowShouldClose(pWindow))
         {
-
-   
+            /* Poll for and process events */
+            glfwPollEvents();
 
             auto currentTime = std::chrono::high_resolution_clock::now();
-            uint64_t duration = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - lastTime).count();
+            double duration = std::chrono::duration<double, std::milli>(currentTime - lastTime).count();
             lastTime = currentTime;
+            g_game->update(duration);
+            Physics::PhysicsEngine::update(duration);
 
-            g_game.update(duration);
-
-           
-            glClear(GL_COLOR_BUFFER_BIT);
-
-            g_game.render();
+            /* Render here */
+            RenderEngine::Renderer::clear();
             
-            glfwSwapBuffers(pWindow);
+            g_game->render();
 
-            glfwPollEvents();
+            /* Swap front and back buffers */
+            glfwSwapBuffers(pWindow);
         }
+        Physics::PhysicsEngine::terminate();
+        g_game = nullptr;
         ResourceManager::unloadAllResources();
     }
 
